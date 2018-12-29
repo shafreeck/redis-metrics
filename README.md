@@ -2,8 +2,8 @@
 
 # Features
 
-* Dynamic discover hosts of a DNS 
-* Dynamic discover all slaves of the master
+* Dynamicly discover hosts from the DNS 
+* Dynamicly discover all slaves of the master
 * Export rich metrics
 
 # Usage
