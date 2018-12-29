@@ -11,3 +11,10 @@
 ```
 go get github.com/shafreeck/redis-metrics
 ```
+
+Edit redis-metrics.toml
+
+```
+auth=""
+master=["your", "redis", "masters"]
+```
