@@ -38,12 +38,10 @@ import (
 *
  */
 
+type KeyHandler func(rds *Redis, val string) prometheus.Metric
 type RedisCollector struct {
-	conf *Conf
-}
-
-func NewRedisCollector(c *Conf) *RedisCollector {
-	return &RedisCollector{conf: c}
+	conf     *Conf
+	handlers map[string]KeyHandler
 }
 
 func (rc *RedisCollector) Describe(ch chan<- *prometheus.Desc) {
@@ -55,164 +53,158 @@ func (rc *RedisCollector) Collect(ch chan<- prometheus.Metric) {
 		text := rds.Client.Info().String()
 		lines := strings.Split(text, "\r\n")
 		for _, line := range lines {
-			switch {
-			case strings.HasPrefix(line, "redis_version:"):
-				ch <- redisVersion(rds, line)
-			case strings.HasPrefix(line, "uptime_in_seconds:"):
-				ch <- redisUptime(rds, line)
-			case strings.HasPrefix(line, "used_memory_rss:"):
-				ch <- redisRSSMemoryUsage(rds, line)
-			case strings.HasPrefix(line, "maxmemory:"):
-				ch <- redisMaxMemory(rds, line)
-			case strings.HasPrefix(line, "total_system_memory:"):
-				ch <- redisSystemMemory(rds, line)
-			case strings.HasPrefix(line, "connected_clients:"):
-				ch <- redisClientsConnected(rds, line)
-			case strings.HasPrefix(line, "total_net_input_bytes:"):
-				ch <- redisNetInputBytes(rds, line)
-			case strings.HasPrefix(line, "total_net_output_bytes:"):
-				ch <- redisNetOutputBytes(rds, line)
-			case strings.HasPrefix(line, "used_cpu_sys:"):
-				ch <- redisCPUSys(rds, line)
-			case strings.HasPrefix(line, "used_cpu_user:"):
-				ch <- redisCPUUser(rds, line)
-			case strings.HasPrefix(line, "total_commands_processed:"):
-				ch <- redisCommandsProcessedTotal(rds, line)
+			fields := strings.Split(line, ":")
+			if len(fields) < 2 {
+				continue
 			}
+			key, val := fields[0], fields[1]
+			h, ok := rc.handlers[key]
+			if !ok {
+				continue
+			}
+			ch <- h(rds, val)
 		}
 
 		collectCommandStats(rds, ch)
 	})
 }
 
-func redisVersion(rds *Redis, line string) prometheus.Metric {
-	desc := prometheus.NewDesc(
-		"redis_version",
-		"version of the redis instance",
-		[]string{"host", "role", "version"}, nil)
-	version := strings.TrimPrefix(line, "redis_version:")
-	return prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(1), rds.Address, rds.Role, version)
+func NewRedisCollector(c *Conf) *RedisCollector {
+	handlers := map[string]KeyHandler{
+		"redis_version": func(rds *Redis, val string) prometheus.Metric {
+			desc := prometheus.NewDesc(
+				"redis_version",
+				"version of the redis instance",
+				[]string{"host", "role", "version"}, nil)
+			return prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(1), rds.Address, rds.Role, val)
+		},
+
+		"uptime_in_seconds": func(rds *Redis, val string) prometheus.Metric {
+			desc := prometheus.NewDesc(
+				"redis_up_seconds_total",
+				"seconds since startup of the redis",
+				[]string{"host", "role"}, nil)
+			sec, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				log.Println("parse uptime failed", err)
+			}
+			return prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(sec), rds.Address, rds.Role)
+		},
+		"used_memory_rss": func(rds *Redis, val string) prometheus.Metric {
+			desc := prometheus.NewDesc(
+				"redis_memory_usage_bytes",
+				"redis memory usage",
+				[]string{"host", "role", "type"}, nil)
+			used, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				log.Println("parse used_memory_rss failed", err)
+			}
+			return prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(used), rds.Address, rds.Role, "rss")
+		},
+		"maxmemory": func(rds *Redis, val string) prometheus.Metric {
+			desc := prometheus.NewDesc(
+				"redis_max_memory_bytes",
+				"redis max memory configured, 0 means unlimited",
+				[]string{"host", "role"}, nil)
+			mem, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				log.Println("parse maxmemory failed", err)
+			}
+			return prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(mem), rds.Address, rds.Role)
+		},
+		"total_system_memory": func(rds *Redis, val string) prometheus.Metric {
+			desc := prometheus.NewDesc(
+				"redis_memory_system_total_bytes",
+				"total memory of the host",
+				[]string{"host", "role"}, nil)
+			mem, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				log.Println("parse total_system_memory failed", err)
+			}
+			return prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(mem), rds.Address, rds.Role)
+		},
+		"connected_clients": func(rds *Redis, val string) prometheus.Metric {
+			desc := prometheus.NewDesc(
+				"redis_clients_connected_number",
+				"number of redis clients",
+				[]string{"host", "role"}, nil)
+			n, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				log.Println("parse connected_clients failed", err)
+			}
+			return prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(n), rds.Address, rds.Role)
+		},
+		"total_net_input_bytes": func(rds *Redis, val string) prometheus.Metric {
+			desc := prometheus.NewDesc(
+				"redis_net_bytes_total",
+				"network flowed bytes",
+				[]string{"host", "role", "direction"}, nil)
+			n, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				log.Println("parse total_net_input_bytes failed", err)
+			}
+			return prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(n), rds.Address, rds.Role, "input")
+		},
+		"total_net_output_bytes": func(rds *Redis, val string) prometheus.Metric {
+			desc := prometheus.NewDesc(
+				"redis_net_bytes_total",
+				"network flowed bytes",
+				[]string{"host", "role", "direction"}, nil)
+			n, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				log.Println("parse total_net_output_bytes failed", err)
+			}
+			return prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(n), rds.Address, rds.Role, "output")
+		},
+		"used_cpu_sys": func(rds *Redis, val string) prometheus.Metric {
+			desc := prometheus.NewDesc(
+				"redis_cpu_usage_seconds_total",
+				"total seconds of cpu time",
+				[]string{"host", "role", "type"}, nil)
+			used, err := strconv.ParseFloat(val, 64)
+			if err != nil {
+				log.Println("parse used_cpu_sys failed", err)
+			}
+			return prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, used, rds.Address, rds.Role, "sys")
+		},
+		"used_cpu_user": func(rds *Redis, val string) prometheus.Metric {
+			desc := prometheus.NewDesc(
+				"redis_cpu_usage_seconds_total",
+				"total seconds of cpu time",
+				[]string{"host", "role", "type"}, nil)
+			used, err := strconv.ParseFloat(val, 64)
+			if err != nil {
+				log.Println("parse used_cpu_user failed", err)
+			}
+			return prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, used, rds.Address, rds.Role, "user")
+		},
+		"total_commands_processed": func(rds *Redis, val string) prometheus.Metric {
+			desc := prometheus.NewDesc(
+				"redis_commands_processed_total",
+				"total number of commands has been processed",
+				[]string{"host", "role"}, nil)
+			n, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				log.Println("parse total_commands_processed failed", err)
+			}
+			return prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(n), rds.Address, rds.Role)
+		},
+		"blocked_clients": func(rds *Redis, val string) prometheus.Metric {
+			desc := prometheus.NewDesc(
+				"redis_clients_blocked_number",
+				"number of blocked clients",
+				[]string{"host", "role"}, nil)
+			n, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				log.Println("parse blocked_clients failed", err)
+			}
+			return prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(n), rds.Address, rds.Role)
+		},
+	}
+
+	return &RedisCollector{conf: c, handlers: handlers}
 }
 
-func redisUptime(rds *Redis, line string) prometheus.Metric {
-	desc := prometheus.NewDesc(
-		"redis_up_seconds_total",
-		"seconds since startup of the redis",
-		[]string{"host", "role"}, nil)
-	val, err := strconv.ParseInt(strings.TrimPrefix(line, "uptime_in_seconds:"), 10, 64)
-	if err != nil {
-		log.Println("parse uptime failed", err)
-	}
-	return prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(val), rds.Address, rds.Role)
-}
-
-func redisRSSMemoryUsage(rds *Redis, line string) prometheus.Metric {
-	desc := prometheus.NewDesc(
-		"redis_memory_usage_bytes",
-		"redis memory usage",
-		[]string{"host", "role", "type"}, nil)
-	val, err := strconv.ParseInt(strings.TrimPrefix(line, "used_memory_rss:"), 10, 64)
-	if err != nil {
-		log.Println("parse used_memory_rss failed", err)
-	}
-	return prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(val), rds.Address, rds.Role, "rss")
-}
-
-func redisMaxMemory(rds *Redis, line string) prometheus.Metric {
-	desc := prometheus.NewDesc(
-		"redis_max_memory_bytes",
-		"redis max memory configured, 0 means unlimited",
-		[]string{"host", "role"}, nil)
-	val, err := strconv.ParseInt(strings.TrimPrefix(line, "maxmemory:"), 10, 64)
-	if err != nil {
-		log.Println("parse maxmemory failed", err)
-	}
-	return prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(val), rds.Address, rds.Role)
-}
-
-func redisSystemMemory(rds *Redis, line string) prometheus.Metric {
-	desc := prometheus.NewDesc(
-		"redis_memory_system_total_bytes",
-		"total memory of the host",
-		[]string{"host", "role"}, nil)
-	val, err := strconv.ParseInt(strings.TrimPrefix(line, "total_system_memory:"), 10, 64)
-	if err != nil {
-		log.Println("parse total_system_memory failed", err)
-	}
-	return prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(val), rds.Address, rds.Role)
-}
-
-func redisClientsConnected(rds *Redis, line string) prometheus.Metric {
-	desc := prometheus.NewDesc(
-		"redis_clients_connected_number",
-		"number of redis clients",
-		[]string{"host", "role"}, nil)
-	val, err := strconv.ParseInt(strings.TrimPrefix(line, "connected_clients:"), 10, 64)
-	if err != nil {
-		log.Println("parse connected_clients failed", err)
-	}
-	return prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(val), rds.Address, rds.Role)
-}
-
-func redisNetInputBytes(rds *Redis, line string) prometheus.Metric {
-	desc := prometheus.NewDesc(
-		"redis_net_bytes_total",
-		"network flowed bytes",
-		[]string{"host", "role", "direction"}, nil)
-	val, err := strconv.ParseInt(strings.TrimPrefix(line, "total_net_input_bytes:"), 10, 64)
-	if err != nil {
-		log.Println("parse total_net_input_bytes failed", err)
-	}
-	return prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(val), rds.Address, rds.Role, "input")
-}
-
-func redisNetOutputBytes(rds *Redis, line string) prometheus.Metric {
-	desc := prometheus.NewDesc(
-		"redis_net_bytes_total",
-		"network flowed bytes",
-		[]string{"host", "role", "direction"}, nil)
-	val, err := strconv.ParseInt(strings.TrimPrefix(line, "total_net_output_bytes:"), 10, 64)
-	if err != nil {
-		log.Println("parse total_net_output_bytes failed", err)
-	}
-	return prometheus.MustNewConstMetric(desc, prometheus.CounterValue, float64(val), rds.Address, rds.Role, "output")
-}
-
-func redisCPUSys(rds *Redis, line string) prometheus.Metric {
-	desc := prometheus.NewDesc(
-		"redis_cpu_usage_seconds_total",
-		"total seconds of cpu time",
-		[]string{"host", "role", "type"}, nil)
-	val, err := strconv.ParseFloat(strings.TrimPrefix(line, "used_cpu_sys:"), 64)
-	if err != nil {
-		log.Println("parse used_cpu_sys failed", err)
-	}
-	return prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, val, rds.Address, rds.Role, "sys")
-}
-
-func redisCPUUser(rds *Redis, line string) prometheus.Metric {
-	desc := prometheus.NewDesc(
-		"redis_cpu_usage_seconds_total",
-		"total seconds of cpu time",
-		[]string{"host", "role", "type"}, nil)
-	val, err := strconv.ParseFloat(strings.TrimPrefix(line, "used_cpu_user:"), 64)
-	if err != nil {
-		log.Println("parse used_cpu_user failed", err)
-	}
-	return prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, val, rds.Address, rds.Role, "user")
-}
-
-func redisCommandsProcessedTotal(rds *Redis, line string) prometheus.Metric {
-	desc := prometheus.NewDesc(
-		"redis_commands_processed_total",
-		"total number of commands has been processed",
-		[]string{"host", "role", "cmd"}, nil)
-	val, err := strconv.ParseInt(strings.TrimPrefix(line, "total_commands_processed:"), 10, 64)
-	if err != nil {
-		log.Println("parse total_commands_processed failed", err)
-	}
-	return prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, float64(val), rds.Address, rds.Role, "total")
-}
 func collectCommandStats(rds *Redis, ch chan<- prometheus.Metric) {
 	callsDesc := prometheus.NewDesc(
 		"redis_commands_calls_total",
