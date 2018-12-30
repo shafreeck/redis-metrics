@@ -11,6 +11,7 @@ import (
 )
 
 type Conf struct {
+	Listen  string `cfg:listen; :8804; netaddr; the listen address of the http server`
 	Auth    string
 	Masters []string
 }
