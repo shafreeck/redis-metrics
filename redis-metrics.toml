@@ -1,2 +1,3 @@
-auth=""
-masters=["localhost:6379"]
+listen  = ":8804"
+auth    =""
+masters =["localhost:6379"]

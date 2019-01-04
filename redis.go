@@ -10,12 +10,6 @@ import (
 	"github.com/go-redis/redis"
 )
 
-type Conf struct {
-	Listen  string `cfg:listen; :8804; netaddr; the listen address of the http server`
-	Auth    string
-	Masters []string
-}
-
 type Redis struct {
 	Client   *redis.Client
 	Role     string
