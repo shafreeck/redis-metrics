@@ -27,3 +27,5 @@ mv redis-metrics redis-metrics.old
 cp /new/redis-metrics ./redis-metrics
 kill -HUP $(redis-metrics.pid)
 ```
+
+![dashboard](./dashboard.png)
