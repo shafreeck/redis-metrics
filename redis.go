@@ -84,6 +84,7 @@ func RunOnRedisAsync(wg *sync.WaitGroup, redises []*Redis, f func(rds *Redis)) {
 
 		go func(rds *Redis) {
 			f(rds)
+			rds.Client.Close()
 			wg.Done()
 		}(rds)
 		RunOnRedisAsync(wg, rds.Children, f)
