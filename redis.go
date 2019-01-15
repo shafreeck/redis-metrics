@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-redis/redis"
 )
@@ -23,8 +24,9 @@ func ParseRedisGroup(address string, auth string, role string) *Redis {
 	var children []*Redis
 	master := &Redis{Role: role, Address: address}
 	c := redis.NewClient(&redis.Options{
-		Addr:     address,
-		Password: auth,
+		Addr:        address,
+		Password:    auth,
+		DialTimeout: 100 * time.Millisecond,
 	})
 	master.Client = c
 
