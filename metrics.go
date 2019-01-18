@@ -103,6 +103,7 @@ func NewRedisCollector(c *Conf) *RedisCollector {
 		"aof_rewrite_in_progress":    Metric("redis_current_status", "current status of redis", "status", "aof_rewrite_in_progress"),
 		"aof_rewrite_scheduled":      Metric("redis_current_status", "current status of redis", "status", "aof_rewrite_scheduled"),
 		"cluster_enabled":            Metric("redis_current_status", "current status of redis", "status", "cluster_enabled"),
+		"rdb_bgsave_in_progress":     Metric("redis_current_status", "current status of redis", "status", "rdb_bgsave_in_progress"),
 		"total_connections_received": Metric("redis_connections_total", "number of connections processed", "type", "received"),
 		"rejected_connections":       Metric("redis_connections_total", "number of connections processed", "type", "rejected"),
 		"expired_keys":               Metric("redis_expired_keys_total", "number of keys that has expired"),
