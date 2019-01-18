@@ -109,6 +109,7 @@ func NewRedisCollector(c *Conf) *RedisCollector {
 		"keyspace_hits":              Metric("redis_keyspace_access", "hits or misses of key requests", "type", "hits"),
 		"keyspace_misses":            Metric("redis_keyspace_access", "hits or misses of key requests", "type", "misses"),
 		"latest_fork_usec":           Metric("redis_latest_fork_duration_microseconds", "cost of the lastest fork"),
+		"aof_last_rewrite_time_sec":  Metric("redis_aof_last_rewrite_time_seconds", "cost of last aof rewrite"),
 	}
 
 	return &RedisCollector{conf: c, handlers: handlers}
