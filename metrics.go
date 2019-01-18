@@ -108,6 +108,7 @@ func NewRedisCollector(c *Conf) *RedisCollector {
 		"expired_keys":               Metric("redis_expired_keys_total", "number of keys that has expired"),
 		"keyspace_hits":              Metric("redis_keyspace_access", "hits or misses of key requests", "type", "hits"),
 		"keyspace_misses":            Metric("redis_keyspace_access", "hits or misses of key requests", "type", "misses"),
+		"latest_fork_usec":           Metric("redis_latest_fork_duration_seconds", "cost of the lastest fork"),
 	}
 
 	return &RedisCollector{conf: c, handlers: handlers}
